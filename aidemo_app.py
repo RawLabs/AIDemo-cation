@@ -227,10 +227,13 @@ with st.sidebar:
     st.header("📊 Usage Stats")
     
     # Daily global cap tracking
-    daily_tracking = load_daily_tracking()
-    daily_percentage = (daily_tracking["cost"] / 1.0) * 100
-    st.metric("Daily Usage", f"${daily_tracking['cost']:.4f}/$1.00")
-    st.progress(min(daily_percentage / 100, 1.0))
+    try:
+        daily_tracking = load_daily_tracking()
+        daily_percentage = (daily_tracking["cost"] / 1.0) * 100
+        st.metric("Daily Usage", f"${daily_tracking['cost']:.4f}/$1.00")
+        st.progress(min(daily_percentage / 100, 1.0))
+    except Exception as e:
+        st.error(f"Error loading daily stats: {str(e)}")
     
     # Session-specific tracking
     if 'requests' in st.session_state and 'session_tokens' in st.session_state:
