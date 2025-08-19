@@ -171,6 +171,14 @@ def calculate_cost(input_tokens, output_tokens, model):
 # Sidebar for API configuration and usage stats
 with st.sidebar:
     st.header("📊 Usage Stats")
+    
+    # Daily global cap tracking
+    daily_tracking = load_daily_tracking()
+    daily_percentage = (daily_tracking["cost"] / 1.0) * 100
+    st.metric("Daily Usage", f"${daily_tracking['cost']:.4f}/$1.00")
+    st.progress(min(daily_percentage / 100, 1.0))
+    
+    # Session-specific tracking
     if 'requests' in st.session_state and 'session_tokens' in st.session_state:
         recent_requests = len([
             req_time for req_time in st.session_state.requests 
@@ -178,7 +186,7 @@ with st.sidebar:
         ])
         st.metric("Requests (last 10 min)", f"{recent_requests}/5")
         st.metric("Session Tokens", f"{st.session_state.session_tokens:,}/50,000")
-        st.metric("Session Cost", f"${(st.session_state.session_tokens / 1000) * 0.001:.4f}")
+        st.metric("Session Cost", f"${st.session_state.total_cost:.4f}")  # Using actual tracked cost
     
     st.info("💡 This demo has usage limits to prevent abuse and keep it free for everyone!")
     
@@ -287,7 +295,7 @@ with col2:
     
     # Display total cost
     if st.session_state.total_cost > 0:
-        st.metric("💰 Total Session Cost", f"${st.session_state.total_cost:.4f}")
+       st.metric("Session Cost", f"${st.session_state.total_cost:.4f}")
     
     # Generate button with full protection
     if st.button("🚀 Generate Response", type="primary", disabled=not st.session_state.client):
