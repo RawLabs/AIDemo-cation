@@ -1,0 +1,20 @@
+# Virtual environment
+venv/
+aidemo_env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables (keep API keys safe!)
+.env
+
+# Streamlit cache
+.streamlit/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
