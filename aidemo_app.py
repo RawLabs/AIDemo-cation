@@ -5,7 +5,8 @@ import json
 import os
 import tiktoken
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+import tempfile
 from dotenv import load_dotenv
 
 # Load environment variables from .env file for local testing
@@ -17,6 +18,61 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide"
 )
+
+# --- GLOBAL DAILY CAP FUNCTIONS ---
+def get_daily_tracking_file():
+    """Get path to daily tracking file in temp directory"""
+    temp_dir = tempfile.gettempdir()
+    return os.path.join(temp_dir, "ai_explorer_daily.json")
+
+def load_daily_tracking():
+    """Load daily tracking data"""
+    tracking_file = get_daily_tracking_file()
+    if os.path.exists(tracking_file):
+        try:
+            with open(tracking_file, 'r') as f:
+                return json.load(f)
+        except:
+            return {"date": str(date.today()), "cost": 0.0}
+    return {"date": str(date.today()), "cost": 0.0}
+
+def save_daily_tracking(data):
+    """Save daily tracking data"""
+    tracking_file = get_daily_tracking_file()
+    with open(tracking_file, 'w') as f:
+        json.dump(data, f)
+
+def check_daily_cap(estimated_cost):
+    """Check if adding this cost would exceed daily cap"""
+    tracking = load_daily_tracking()
+    today = str(date.today())
+    
+    # Reset if it's a new day
+    if tracking["date"] != today:
+        tracking = {"date": today, "cost": 0.0}
+        save_daily_tracking(tracking)
+    
+    # Check if we would exceed the daily cap
+    daily_cap = 1.0  # $1 per day
+    if tracking["cost"] + estimated_cost > daily_cap:
+        st.error(f"💰 Daily spending limit of ${daily_cap} reached! Please try again tomorrow.")
+        st.info("This helps keep the demo free for everyone. The limit resets at midnight UTC.")
+        return False
+    
+    return True
+
+def update_daily_cost(cost):
+    """Update the daily cost after a successful request"""
+    tracking = load_daily_tracking()
+    today = str(date.today())
+    
+    # Reset if it's a new day
+    if tracking["date"] != today:
+        tracking = {"date": today, "cost": cost}
+    else:
+        tracking["cost"] += cost
+    
+    save_daily_tracking(tracking)
 
 # --- ABUSE PREVENTION FUNCTIONS ---
 def check_rate_limit():
@@ -98,12 +154,10 @@ def validate_input(user_input):
     return True
 
 # --- MAIN APP ---
-
 # Title and description
 st.title("🤖 AI Parameter Explorer")
 st.markdown("""
 **Discover how AI parameters change responses!** 
-
 This tool demonstrates that AI models are sophisticated **word prediction systems**, not oracles. 
 Small changes in parameters can dramatically alter outputs, showing the probabilistic nature of AI.
 """)
@@ -186,7 +240,7 @@ with st.sidebar:
         ])
         st.metric("Requests (last 10 min)", f"{recent_requests}/5")
         st.metric("Session Tokens", f"{st.session_state.session_tokens:,}/50,000")
-        st.metric("Session Cost", f"${st.session_state.total_cost:.4f}")  # Using actual tracked cost
+        st.metric("Session Cost", f"${st.session_state.total_cost:.4f}")
     
     st.info("💡 This demo has usage limits to prevent abuse and keep it free for everyone!")
     
@@ -295,7 +349,7 @@ with col2:
     
     # Display total cost
     if st.session_state.total_cost > 0:
-       st.metric("Session Cost", f"${st.session_state.total_cost:.4f}")
+        st.metric("💰 Total Session Cost", f"${st.session_state.total_cost:.4f}")
     
     # Generate button with full protection
     if st.button("🚀 Generate Response", type="primary", disabled=not st.session_state.client):
@@ -306,6 +360,15 @@ with col2:
         
         # Check rate limits
         if not check_rate_limit():
+            st.stop()
+        
+        # Estimate cost for daily cap check
+        input_tokens = count_tokens(prompt, model)
+        estimated_output_tokens = max_tokens  # Worst-case scenario
+        estimated_cost = calculate_cost(input_tokens, estimated_output_tokens, model)
+        
+        # Check daily cap
+        if not check_daily_cap(estimated_cost):
             st.stop()
             
         with st.spinner("Generating response..."):
@@ -324,16 +387,19 @@ with col2:
                 # Extract response text
                 response_text = response.choices[0].message.content
                 
-                # Calculate costs and track tokens
+                # Calculate actual costs
                 input_tokens = count_tokens(prompt, model)
                 output_tokens = count_tokens(response_text, model)
-                cost = calculate_cost(input_tokens, output_tokens, model)
+                actual_cost = calculate_cost(input_tokens, output_tokens, model)
                 total_tokens = input_tokens + output_tokens
                 
                 # Update session tracking
-                st.session_state.total_cost += cost
+                st.session_state.total_cost += actual_cost
                 st.session_state.session_tokens += total_tokens
                 log_request()  # Log successful request
+                
+                # Update daily cost tracking
+                update_daily_cost(actual_cost)
                 
                 # Store response with parameters
                 response_data = {
@@ -341,7 +407,7 @@ with col2:
                     "model": model,
                     "prompt": prompt,
                     "response": response_text,
-                    "cost": cost,
+                    "cost": actual_cost,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "parameters": {
@@ -395,9 +461,7 @@ with col2:
 # Educational content at the bottom
 st.divider()
 st.header("🎓 Understanding AI Parameters")
-
 col1, col2, col3 = st.columns(3)
-
 with col1:
     st.subheader("🌡️ Temperature")
     st.write("""
@@ -408,7 +472,6 @@ with col1:
     
     *Try the same prompt with 0.1 vs 1.5!*
     """)
-
 with col2:
     st.subheader("🎯 Top-p")
     st.write("""
@@ -418,7 +481,6 @@ with col2:
     
     *Lower values = more predictable language*
     """)
-
 with col3:
     st.subheader("📊 Penalties")
     st.write("""
@@ -438,9 +500,7 @@ st.divider()
 
 # Additional educational section about tokens
 st.header("🔤 Understanding Tokens & Costs")
-
 col1, col2 = st.columns(2)
-
 with col1:
     st.subheader("🔢 What are Tokens?")
     st.write("""
@@ -456,7 +516,6 @@ with col1:
     • ~750 words = 1,000 tokens
     • Spaces and punctuation count!
     """)
-
 with col2:
     st.subheader("💰 How Costs Work")
     st.write("""
@@ -480,7 +539,6 @@ demo_text = st.text_input(
     value="Hello, how are you doing today?",
     help="See how different text gets converted to tokens"
 )
-
 if demo_text:
     token_count = count_tokens(demo_text, "gpt-3.5-turbo")
     col_a, col_b, col_c = st.columns(3)
@@ -496,8 +554,12 @@ if demo_text:
 st.markdown("---")
 st.markdown("""
 ### 📋 Usage Limits & Fair Use Policy
-
 **This demo has the following limits to keep it free and available for everyone:**
+
+**Global Daily Cap:**
+- **$1.00 per day** - Total spending limit across all users
+- Resets at midnight UTC
+- Prevents excessive costs for the demo
 
 **Rate Limits:**
 - **5 requests per 10 minutes** - Prevents rapid-fire spam
